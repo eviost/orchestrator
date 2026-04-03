@@ -2,7 +2,7 @@
 name: orchestrator-v4
 version: 1.1.0
 description: |
-  智能任务编排系统。自动扫描项目规模、规划子任务、动态派发多个 AI Worker 并行执行，支持大项目按模块拆分、自适应超时、滚动派发。
+  智能任务编排系统。自动扫描项目规模、规划子任务、动态派发多个 AI Worker 并行执行，支持大项目按模块拆分、自适应超时、滚动派发、用户随时打断改思路。
   触发条件：用户需要处理复杂任务、多步骤分析、代码生成、调试分析、研究调查或需要智能调度 AI Worker 时。
 ---
 
@@ -11,8 +11,6 @@ description: |
 智能任务编排系统，让 AI Agent 具备多线程工作能力。
 
 ## 与 OpenClaw 原生 subagent 的区别
-
-OpenClaw 提供了 `sessions_spawn` 作为派发子代理的基础能力，Orchestrator 在此基础上提供智能调度层：
 
 | 能力 | OpenClaw 原生 | Orchestrator |
 |------|--------------|--------------|
@@ -24,31 +22,50 @@ OpenClaw 提供了 `sessions_spawn` 作为派发子代理的基础能力，Orche
 | 失败重试 | 无 | 缩小范围重跑 |
 | 进度追踪 | 手动记录 session_key | 实时进度表格 |
 | 滚动派发 | 无 | 前一批完成后自动派发下一批 |
+| 用户打断 | 需手动管理 | 随时打断，暂停/改思路/恢复 |
 
-## 核心能力（已验证）
+## 核心能力
 
-以下功能全部经过端到端验证（2026-04-04 Claude Code 52 万行源码分析，13 个子代理零超时）：
+以下功能全部经过端到端验证（2026-04-04 Claude Code 52 万行源码，18 个子代理零超时零空输出）：
 
-1. **扫描 - 规划 - 派发**：scan_and_plan.py 扫描文件系统，自动规划子任务，输出 JSON 供主会话派发
-2. **大项目按模块拆分**：超过 1000 文件或 10 万行代码时，自动按顶层目录识别功能模块
-3. **自适应超时**：小模块（<20 文件）5 分钟、中模块（20-50 文件）8 分钟、大模块（>50 文件）10 分钟
-4. **子代理文件读取约束**：自动在 prompt 中注入文件读取上限，防止子代理贪心读文件导致超时
-5. **滚动派发**：按 max_parallel 分批派发，前一批完成后立即派发下一批
-6. **小模块合并派发**：多个小模块合并到一个子代理，减少 spawn 开销
-7. **超时重试**：超时的子任务缩小范围重跑，不原样重试
-8. **任务类型自动识别**：analysis > code > debug > research > general 优先级链
+### 规划引擎（纯计算，不依赖外部 API）
 
-## 扩展能力（代码已实现，需注入 spawn_func 才能独立运行）
+1. **扫描 `scan_task_scope()`**：扫描文件系统，统计文件数/行数/体积，识别顶层功能模块
+2. **规划 `plan_complex_task()`**：自动拆分子任务，计算超时，生成含文件读取约束的 prompt
+3. **scan_and_plan.py CLI**：命令行入口，输出 JSON 供主会话读取和派发
+4. **任务类型自动识别 `_auto_detect_request_type()`**：analysis > code > debug > research > general 优先级链
 
-以下功能在 orchestrator_v4_acp.py 中完整实现，但依赖 `spawn_func` 注入。在标准流程（Step 1-6）中由主会话的 sessions_spawn 替代：
+### 大项目智能拆分
 
+5. **大项目检测**：超过 1000 文件或 10 万行代码时自动切换大项目模式
+6. **按模块拆分**：按顶层目录识别功能模块，不按文件数机械切片
+7. **小模块合并**：文件数少于 5 的模块合并为一组，减少 spawn 开销
+8. **自适应超时**：小模块（<20 文件）5min、中模块（20-50 文件）8min、大模块（>50 文件）10min
+9. **文件读取约束注入**：每个子任务 prompt 自动注入"最多读 N 个文件"
+
+### 派发与执行（主会话通过 sessions_spawn 执行）
+
+10. **滚动派发**：按 max_parallel 分批，前一批完成后立即派发下一批
+11. **超时重试**：超时的子任务缩小范围重跑，不原样重试
+12. **进度追踪**：实时进度表格，每个子代理完成时输出关键发现
+
+### 用户交互控制（主会话原生支持）
+
+13. **用户随时打断**：子代理运行期间主会话保持可交互，用户随时可以发消息
+14. **暂停派发**：用户说"暂停"时，主会话停止派发新的子代理（已派发的继续运行至完成或超时）
+15. **改思路**：用户说"改方向"时，主会话调整后续子任务的 prompt 或取消剩余派发
+16. **恢复**：用户说"继续"时，主会话按新的或原有规划继续派发
+
+### Python API（需注入 spawn_func 才能独立运行）
+
+以下功能在 orchestrator_v4_acp.py 中完整实现，当前在标准流程中由主会话的 sessions_spawn 替代。将来 OpenClaw 支持 Python SDK 后可直接启用：
+
+- **handle()**：端到端执行（扫描→规划→派发→收集→汇总）
 - **三级 Worker 路由**：Fast（本地秒回）、Slow（子代理）、Long（v3_bridge 子进程+心跳）
 - **审计质检**：`enable_audit=True` 时代码任务自动过审计官，REJECT 自动重做
-- **暂停/恢复/改思路**：`pause_all()` / `redirect("新方向")` / `resume_with_redirect()`
-- **进度追踪**：`get_progress_report()` 返回运行中/完成/失败的子任务统计
+- **pause_all() / redirect() / resume_with_redirect()**：Orchestrator 内部子代理的暂停/改思路控制
+- **get_progress_report()**：Orchestrator 内部的任务统计
 - **并发限流**：`_spawn_semaphore` 控制最大并行 subagent 数
-
-这些功能在将来 OpenClaw 支持 spawn_func 注入后可直接启用，无需改代码。
 
 ---
 
@@ -57,8 +74,6 @@ OpenClaw 提供了 `sessions_spawn` 作为派发子代理的基础能力，Orche
 当用户给出复杂任务时，主会话必须严格按以下 6 步执行：
 
 ### Step 1：规划
-
-使用 exec 调用 scan_and_plan.py 生成规划 JSON：
 
 ```bash
 cd <skill_dir>/scripts
@@ -109,23 +124,17 @@ sessions_spawn(
 
 调用 sessions_yield 等待子代理完成推送。不主动轮询。
 
+用户可随时发消息打断：
+- "暂停" → 停止派发新的子代理
+- "改思路：xxx" → 调整后续子任务 prompt
+- "继续" → 恢复派发
+
 ### Step 5：进度更新 + 滚动派发
 
 每个子代理完成时：
 
 1. **告知用户关键发现**（一句话概括 + 2-3 个 [重要] 标记）
-2. **更新进度表格**：
-
-```
-| # | 模块 | 状态 |
-|---|------|------|
-| 1 | utils | 已完成 |
-| 2 | components | 已完成 |
-| 3 | hooks | 已完成 |
-| 4 | commands | 运行中 |
-| 5 | services | 运行中 |
-```
-
+2. **更新进度表格**
 3. **前一批全部完成后，立即派发下一批**（重复 Step 3-4）
 4. 小模块可合并派发：一个子代理负责 3-5 个小模块
 
@@ -172,22 +181,12 @@ sessions_spawn(
 
 ---
 
-## 只规划不派发（预览模式）
-
-```bash
-python scan_and_plan.py --task "分析这个项目" --target-dir "/path" --output plan.json
-```
-
-然后 read plan.json 查看规划结果，不执行 Step 3-6。
-
----
-
 ## 文件说明
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
 | `scripts/scan_and_plan.py` | 扫描规划 CLI（Step 1 入口） | 已验证 |
-| `scripts/orchestrator_v4_acp.py` | 主控（扫描+规划+路由+控制+追踪） | 已验证（规划部分） |
+| `scripts/orchestrator_v4_acp.py` | 主控（扫描+规划+路由+控制+追踪） | 规划部分已验证 |
 | `scripts/openclaw_bridge.py` | OpenClaw 桥接层（plan_only 可用） | 部分验证 |
 | `scripts/lifecycle_manager.py` | 进程生命周期（重启策略、指数退避） | 代码就绪 |
 | `scripts/background_monitor.py` | 后台监控（心跳、超时、回调） | 代码就绪 |
@@ -200,37 +199,26 @@ python scan_and_plan.py --task "分析这个项目" --target-dir "/path" --outpu
 
 ## 关键配置
 
-| 配置 | 默认 | 说明 | 状态 |
-|------|------|------|------|
-| `max_files_per_subtask` | 2 | 每子任务最多读文件数（代码生成类） | 已验证 |
-| `analysis_max_files_per_subtask` | 8 | 分析类每子任务最多读文件数 | 已验证 |
-| `large_project_file_threshold` | 1000 | 大项目文件数阈值 | 已验证 |
-| `large_project_line_threshold` | 100000 | 大项目行数阈值 | 已验证 |
-| `analysis_small_module_timeout` | 300 | 小模块超时（秒） | 已验证 |
-| `analysis_medium_module_timeout` | 480 | 中模块超时（秒） | 已验证 |
-| `analysis_large_module_timeout` | 600 | 大模块超时（秒） | 已验证 |
-| `max_parallel_subagents` | 3 | 同时运行的子代理数 | 已验证 |
-| `enable_audit` | False | 启用审计质检 | 需 spawn_func |
-| `enable_micro_scheduler` | False | 启用并发调度 | 需 spawn_func |
-| `enable_task_planning` | True | 启用任务预规划 | 已验证 |
-
-## 大项目分析策略
-
-当目标项目超过 1000 个文件或 10 万行代码时，自动切换为大项目分析模式：
-
-1. **模块识别**：按顶层目录识别功能模块，不按文件数机械切片
-2. **小模块合并**：文件数少于 5 的模块合并为一组
-3. **Prompt 约束注入**：每个子任务 prompt 自动注入文件读取上限
-4. **自适应超时**：小于 20 文件 5 分钟，20-50 文件 8 分钟，超过 50 文件 10 分钟
-5. **超时重试**：超时的子任务缩小范围重跑，不原样重试
-6. **滚动派发**：按 max_parallel 分批，前一批完成后立即派发下一批
-7. **小模块合并派发**：多个小模块合并到一个子代理，减少 spawn 开销
+| 配置 | 默认 | 说明 |
+|------|------|------|
+| `max_files_per_subtask` | 2 | 每子任务最多读文件数（代码生成类） |
+| `analysis_max_files_per_subtask` | 8 | 分析类每子任务最多读文件数 |
+| `large_project_file_threshold` | 1000 | 大项目文件数阈值 |
+| `large_project_line_threshold` | 100000 | 大项目行数阈值 |
+| `analysis_small_module_timeout` | 300 | 小模块超时（秒） |
+| `analysis_medium_module_timeout` | 480 | 中模块超时（秒） |
+| `analysis_large_module_timeout` | 600 | 大模块超时（秒） |
+| `max_parallel_subagents` | 3 | 同时运行的子代理数 |
+| `enable_audit` | False | 启用审计质检（需 spawn_func） |
+| `enable_micro_scheduler` | False | 启用并发调度（需 spawn_func） |
+| `enable_task_planning` | True | 启用任务预规划 |
 
 ## 注意事项
 
 1. 派子代理时必须输出任务表格
 2. 子代理完成时立即通知用户进度和关键发现
-3. 执行过程中主会话保持可交互，不挂起
+3. 执行过程中主会话保持可交互，用户随时可打断
 4. 分析类任务的子代理 prompt 必须包含文件读取约束
 5. 超时的子任务缩小范围重跑，不原样重试
 6. 小模块合并到一个子代理时，prompt 里列出所有模块的目录
+7. 用户说"暂停"时停止派发新子代理，说"继续"时恢复
