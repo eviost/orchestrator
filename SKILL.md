@@ -148,6 +148,57 @@ sessions_spawn(
 
 ---
 
+## 前端输出规范
+
+### 派发时
+```
+第 N 批 M 个子代理已派发：
+
+| # | 模块 | 文件数 | 超时 | Label |
+|---|------|--------|------|-------|
+| 1 | xxx | 184 | 600s | orch-xxx |
+...
+```
+
+### 子代理完成时
+```
+{模块名} 完成（N/总数）。
+
+**{模块名} 模块关键发现：**
+- [重要] 发现 1
+- [重要] 发现 2
+- [重要] 发现 3
+
+进度：N/总数 完成。
+```
+
+### 全部完成时
+```
+全部 N 个模块分析完成。M 个子代理，零超时。
+
+报告已写入 reports/xxx.md
+```
+
+---
+
+## 文件说明
+
+| 文件 | 说明 | 状态 |
+|------|------|------|
+| `scripts/scan_and_plan.py` | 扫描规划 CLI（Step 1 入口） | 已验证 |
+| `scripts/orchestrator_v4_acp.py` | 主控（扫描+规划+路由+控制+追踪） | 规划部分已验证 |
+| `scripts/openclaw_bridge.py` | OpenClaw 桥接层（plan_only 可用） | 部分验证 |
+| `scripts/lifecycle_manager.py` | 进程生命周期（重启策略、指数退避） | 代码就绪 |
+| `scripts/background_monitor.py` | 后台监控（心跳、超时、回调） | 代码就绪 |
+| `scripts/micro_scheduler.py` | 微调度器（优先级、DAG 依赖） | 代码就绪 |
+| `scripts/v3_bridge.py` | 长任务桥接（JSON Line IPC） | 代码就绪 |
+| `scripts/v3_worker.py` | 长任务 Worker 子进程 | 代码就绪 |
+| `scripts/audit_agent.py` | 审计子代理 | 代码就绪 |
+| `scripts/hybrid_worker_acp.py` | 混合 Worker（Fast/Slow 模板） | 代码就绪 |
+| `scripts/openclaw_orchestrator_entry.py` | 统一入口 | 代码就绪 |
+
+---
+
 ## 注意事项
 
 1. 派子代理时必须输出任务表格
