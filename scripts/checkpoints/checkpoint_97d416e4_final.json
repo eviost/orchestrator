@@ -1,0 +1,69 @@
+{
+  "session_id": "97d416e4",
+  "timestamp": 1775149767.1695018,
+  "history": [
+    {
+      "role_user": "你好",
+      "role_assistant": "[ACP Worker Response for slow-worker-cc172386]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.6166964
+    },
+    {
+      "role_user": "设计一个分布式缓存系统",
+      "role_assistant": "[Slow Worker Response via Sub-Agent]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.616738
+    },
+    {
+      "role_user": "什么是协程？",
+      "role_assistant": "[ACP Worker Response for slow-worker-d7cc6e74]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.616787
+    },
+    {
+      "role_user": "这是一个需要深入分析的复杂问题",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-59a6ac27 sessionKey=test-session-123",
+      "timestamp": 1775149764.8325596
+    },
+    {
+      "role_user": "这是一个需要重试的任务",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-59ecdab4 sessionKey=retry-session-3",
+      "timestamp": 1775149765.4563813
+    },
+    {
+      "role_user": "这是一个注定失败的任务",
+      "role_assistant": "[Spawn 失败] 子 agent 启动失败，已重试 2 次，错误: 模拟第 3 次失败（永远失败）",
+      "timestamp": 1775149766.0786471
+    },
+    {
+      "role_user": "并发任务 0",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-0fdd3a38 sessionKey=session-2315415506928",
+      "timestamp": 1775149766.5950143
+    },
+    {
+      "role_user": "并发任务 1",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-1a8daabb sessionKey=session-2315415508128",
+      "timestamp": 1775149766.5950844
+    },
+    {
+      "role_user": "并发任务 2",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-9596b2cb sessionKey=session-2315414556496",
+      "timestamp": 1775149767.106811
+    },
+    {
+      "role_user": "并发任务 3",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-95d4bd85 sessionKey=session-2315414559184",
+      "timestamp": 1775149767.1068792
+    },
+    {
+      "role_user": "分析需求并编写代码实现一个排序算法",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-e99e9d84 sessionKey=scheduler-session-1",
+      "timestamp": 1775149767.1694412
+    }
+  ],
+  "stats": {
+    "fast_tasks": 2,
+    "slow_tasks": 9,
+    "long_tasks": 0,
+    "spawned_agents": 9,
+    "total_tokens_saved": 0
+  },
+  "request_context": {}
+}

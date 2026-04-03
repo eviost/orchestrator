@@ -1,0 +1,39 @@
+{
+  "session_id": "a1bcbce3",
+  "timestamp": 1775149765.456449,
+  "history": [
+    {
+      "role_user": "你好",
+      "role_assistant": "[ACP Worker Response for slow-worker-cc172386]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.6166964
+    },
+    {
+      "role_user": "设计一个分布式缓存系统",
+      "role_assistant": "[Slow Worker Response via Sub-Agent]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.616738
+    },
+    {
+      "role_user": "什么是协程？",
+      "role_assistant": "[ACP Worker Response for slow-worker-d7cc6e74]\nTask: 你是一个深入、全面的 AI 助手，专注于复杂问题解决。\n\n核心原则：\n1. 深入思考后再回答\n2. 考虑边界情况和影响\n3. 提供全面的解决方案\n4. 解释你的思考过程\n\n方法：\n1. 从多角度分析问...",
+      "timestamp": 1775149764.616787
+    },
+    {
+      "role_user": "这是一个需要深入分析的复杂问题",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-59a6ac27 sessionKey=test-session-123",
+      "timestamp": 1775149764.8325596
+    },
+    {
+      "role_user": "这是一个需要重试的任务",
+      "role_assistant": "[Slow Worker spawned] label=slow-worker-59ecdab4 sessionKey=retry-session-3",
+      "timestamp": 1775149765.4563813
+    }
+  ],
+  "stats": {
+    "fast_tasks": 2,
+    "slow_tasks": 3,
+    "long_tasks": 0,
+    "spawned_agents": 3,
+    "total_tokens_saved": 0
+  },
+  "request_context": {}
+}

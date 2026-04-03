@@ -1,0 +1,13 @@
+{
+  "ownerId": "eviost",
+  "slug": "orchestrator-v4",
+  "version": "2.0.0",
+  "publishedAt": 1775250000000,
+  "name": "orchestrator-v4",
+  "description": "智能任务编排系统 v4。自动调度 Fast/Slow/Long Worker，支持任务分解、并发控制、生命周期管理、后台监控、审计子代理。",
+  "author": "eviost",
+  "license": "MIT",
+  "keywords": ["orchestrator", "multi-agent", "task-scheduling", "subagent", "concurrent"],
+  "dependencies": [],
+  "minOpenClawVersion": "2026.3.0"
+}
