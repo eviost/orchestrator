@@ -1,6 +1,6 @@
 ---
 name: orchestrator-v4
-version: 2.1.0
+version: 2.2.0
 description: |
   智能任务编排系统。自动扫描项目规模、规划子任务、动态派发多个 AI Worker 并行执行，支持大项目按模块拆分、自适应超时、滚动派发、用户随时打断改思路。
   触发条件：用户需要处理复杂任务、多步骤分析、代码生成、调试分析、研究调查或需要智能调度 AI Worker 时。
@@ -185,17 +185,8 @@ sessions_spawn(
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
-| `scripts/scan_and_plan.py` | 扫描规划 CLI（Step 1 入口） | 已验证 |
-| `scripts/orchestrator_v4_acp.py` | 主控（扫描+规划+路由+控制+追踪） | 规划部分已验证 |
-| `scripts/openclaw_bridge.py` | OpenClaw 桥接层（plan_only 可用） | 部分验证 |
-| `scripts/lifecycle_manager.py` | 进程生命周期（重启策略、指数退避） | 代码就绪 |
-| `scripts/background_monitor.py` | 后台监控（心跳、超时、回调） | 代码就绪 |
-| `scripts/micro_scheduler.py` | 微调度器（优先级、DAG 依赖） | 代码就绪 |
-| `scripts/v3_bridge.py` | 长任务桥接（JSON Line IPC） | 代码就绪 |
-| `scripts/v3_worker.py` | 长任务 Worker 子进程 | 代码就绪 |
-| `scripts/audit_agent.py` | 审计子代理 | 代码就绪 |
-| `scripts/hybrid_worker_acp.py` | 混合 Worker（Fast/Slow 模板） | 代码就绪 |
-| `scripts/openclaw_orchestrator_entry.py` | 统一入口 | 代码就绪 |
+| `scripts/scan_and_plan.py` | 扫描规划 CLI（Step 1 入口，支持 analyze/fix 模式） | 已验证 |
+| `scripts/orchestrator_v4_acp.py` | 核心引擎（扫描+规划+上下文管理+并发控制） | 已验证 |
 
 ---
 
@@ -208,6 +199,74 @@ sessions_spawn(
 5. 超时的子任务缩小范围重跑，不原样重试
 6. 小模块合并到一个子代理时，prompt 里列出所有模块的目录
 7. 用户说"暂停"时停止派发新子代理，说"继续"时恢复
+8. **空结果检测与处理**：子代理返回结果后，检查内容是否有效：
+   - 空结果判定条件（满足任一即视为空结果）：
+     - 结果长度 < 100 字符
+     - 结果只包含"let me check"、"now let me"、"I have all the context"等中间过程文本
+     - output tokens < 200（子代理统计信息中可见）
+   - 空结果不一定意味着任务失败：子代理可能已通过工具调用完成了文件写入，只是总结文本被截断
+   - 处理流程：
+     1. 先检查磁盘：确认子代理是否已创建/修改了目标文件（检查文件是否存在且非空）
+     2. 如果文件已创建且内容完整 → 任务实际完成，无需重跑，标记为"文件已就位，总结被截断"
+     3. 如果文件不存在或为空 → 真正的空结果，缩小范围重跑
+   - 预防措施：
+     - 子代理 prompt 中要求"先写文件，最后再输出总结"，确保即使被截断文件也已落盘
+     - 单个子代理不要同时读太多文件 + 创建多个文件 + 修改现有文件，容易超 token 限制
+     - 如果任务涉及 >3 个文件的创建/修改，考虑拆成更小的子任务
+     - 对于纯创建文件的任务，可以在 prompt 中直接给出完整代码，让子代理只负责写入
+9. **默认排除目录**：扫描器自动排除 .next、node_modules、.git、dist、build、out、.turbo、coverage 等构建产物和依赖目录，无需手动跳过
+
+---
+
+## 修复模式（v2.2 新增）
+
+当分析完成后需要批量修复问题时，使用修复模式：
+
+### Step 1：准备问题列表
+
+将审计发现的问题整理为 issues.json：
+
+```json
+[
+  {
+    "id": "fix-1",
+    "title": "密码改用 bcrypt",
+    "priority": "P0",
+    "files": ["lib/auth.ts", "app/api/auth/login/route.ts"],
+    "description": "将明文密码验证改为 bcrypt.compare()...",
+    "depends_on": []
+  },
+  {
+    "id": "fix-2",
+    "title": "middleware 添加 role 校验",
+    "priority": "P0",
+    "files": ["middleware.ts"],
+    "description": "JWT 验证后检查 payload.role === 'admin'...",
+    "depends_on": ["fix-1"]
+  }
+]
+```
+
+### Step 2：生成修复计划
+
+```bash
+cd <skill_dir>/scripts
+python scan_and_plan.py \
+  --mode fix \
+  --issues issues.json \
+  --target-dir "/path/to/project" \
+  --output fix-plan.json
+```
+
+脚本会自动：
+- 按优先级排序（P0 > P1 > P2）
+- 操作相同文件的问题合并到一个子任务
+- 处理依赖关系（depends_on）
+- 计算每个子任务的超时时间
+
+### Step 3：按 plan 派发（同分析模式的 Step 3-6）
+
+也可以跳过 issues.json，直接根据审计报告手动规划修复子任务（适合问题清单已经很清晰的情况）。
 
 ---
 

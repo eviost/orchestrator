@@ -20,42 +20,13 @@ from enum import Enum, auto
 from typing import Dict, List, Optional, Callable, Any, AsyncIterator, Awaitable
 from pathlib import Path
 
-# === 新模块导入（向后兼容，导入失败自动降级） ===
-try:
-    from lifecycle_manager import ProcessLifecycleManager, RestartPolicy, ManagedProcess
-    _HAS_LIFECYCLE = True
-except ImportError:
-    _HAS_LIFECYCLE = False
-
-try:
-    from background_monitor import BackgroundMonitor, ProcessStatus
-    _HAS_MONITOR = True
-except ImportError:
-    _HAS_MONITOR = False
-
-try:
-    from micro_scheduler import MicroScheduler, TaskPriority, TaskStatus
-    _HAS_SCHEDULER = True
-except ImportError:
-    _HAS_SCHEDULER = False
-
-try:
-    from v3_bridge import V3Bridge, LongTaskExecutor
-    _HAS_V3_BRIDGE = True
-except ImportError:
-    _HAS_V3_BRIDGE = False
-
-try:
-    from audit_agent import build_audit_prompt, parse_audit_result, CONTRACTS
-    _HAS_AUDIT = True
-except ImportError:
-    _HAS_AUDIT = False
-
-try:
-    from hybrid_worker_acp import HybridWorkerACP, ACPWorkerConfig
-    _HAS_HYBRID_WORKER = True
-except ImportError:
-    _HAS_HYBRID_WORKER = False
+# === 可选模块（向后兼容，导入失败自动降级） ===
+_HAS_AUDIT = False
+_HAS_LIFECYCLE = False
+_HAS_MONITOR = False
+_HAS_SCHEDULER = False
+_HAS_V3_BRIDGE = False
+_HAS_HYBRID_WORKER = False
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +130,8 @@ class OrchestratorConfig:
     subtask_timeout: float = 300.0    # 单个子任务超时（秒）
     
     # 大项目分析策略（v4.1）
-    large_project_file_threshold: int = 1000   # 超过此文件数视为大项目
-    large_project_line_threshold: int = 100000  # 超过此行数视为大项目
+    large_project_file_threshold: int = 50     # 超过此文件数启用模块拆分
+    large_project_line_threshold: int = 5000   # 超过此行数启用模块拆分
     analysis_timeout_small: float = 300.0   # 小模块超时（<20文件）
     analysis_timeout_medium: float = 480.0  # 中模块超时（20-50文件）
     analysis_timeout_large: float = 600.0   # 大模块超时（>50文件）
@@ -1094,8 +1065,25 @@ class OrchestratorV4ACP:
         # 2. 如果有目标目录，扫描整个目录
         scanned_files = []
         if target_dir and os.path.isdir(target_dir):
-            code_extensions = {'.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.java', '.cpp', '.c', '.h', '.md', '.json', '.yaml', '.yml'}
-            skip_dirs = {'__pycache__', 'node_modules', '.git', '.venv', 'venv', 'checkpoints', '.clawhub'}
+            code_extensions = {
+                '.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.java',
+                '.cpp', '.c', '.h', '.md', '.json', '.yaml', '.yml',
+                '.css', '.scss', '.less', '.html', '.vue', '.svelte',
+                '.sh', '.bash', '.sql', '.graphql', '.gql',
+                '.toml', '.ini', '.env',
+            }
+            skip_dirs = {
+                # 构建产物
+                '__pycache__', 'node_modules', '.git', '.venv', 'venv',
+                'checkpoints', '.clawhub', '.next', 'dist', 'build', 'out',
+                '.turbo', '.cache', '.parcel-cache', '.nuxt', '.output',
+                # 依赖/缓存
+                '.npm', '.yarn', '.pnpm-store', 'coverage', '.nyc_output',
+                # IDE
+                '.idea', '.vscode',
+                # 其他
+                '.svn', '.hg', 'vendor', 'target',
+            }
             for root, dirs, filenames in os.walk(target_dir):
                 dirs[:] = [d for d in dirs if d not in skip_dirs]
                 for fname in filenames:
@@ -1115,9 +1103,15 @@ class OrchestratorV4ACP:
         
         ext_to_lang = {
             '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+            '.jsx': 'javascript', '.tsx': 'typescript',
             '.go': 'go', '.rs': 'rust', '.java': 'java',
             '.cpp': 'cpp', '.c': 'c', '.h': 'c-header',
             '.md': 'markdown', '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
+            '.css': 'css', '.scss': 'scss', '.less': 'less',
+            '.html': 'html', '.vue': 'vue', '.svelte': 'svelte',
+            '.sh': 'shell', '.bash': 'shell', '.zsh': 'shell',
+            '.sql': 'sql', '.graphql': 'graphql', '.gql': 'graphql',
+            '.toml': 'toml', '.ini': 'ini', '.env': 'env',
         }
         
         for fpath in all_paths:

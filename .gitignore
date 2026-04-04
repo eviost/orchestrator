@@ -5,3 +5,6 @@ __pycache__/
 .env
 scripts/checkpoints/
 scripts/cc_*.json
+scripts/plan.json
+scripts/fix_plan.json
+scripts/test_*.json
