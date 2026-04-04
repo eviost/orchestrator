@@ -792,12 +792,33 @@ class OrchestratorV4ACP:
         )
         
         if is_large_project and modules and is_analysis:
+            # ---- 第一步：分离大模块和小模块 ----
+            # 小模块判定：文件数 <= 20 且行数 <= 2000
+            SMALL_MODULE_FILE_THRESHOLD = 20
+            SMALL_MODULE_LINE_THRESHOLD = 2000
+            # 合并后单个 subtask 的负载上限
+            MERGED_BATCH_FILE_LIMIT = 60
+            MERGED_BATCH_LINE_LIMIT = 5000
+            
+            large_modules = {}  # 大模块：每个单独一个 subtask
+            small_modules = {}  # 小模块：待合并
+            
+            for module_key, module_info in modules.items():
+                fc = module_info["file_count"]
+                tl = module_info["total_lines"]
+                if fc > SMALL_MODULE_FILE_THRESHOLD or tl > SMALL_MODULE_LINE_THRESHOLD:
+                    large_modules[module_key] = module_info
+                else:
+                    small_modules[module_key] = module_info
+            
             subtasks = []
-            for idx, (module_key, module_info) in enumerate(modules.items()):
+            step_idx = 0
+            
+            # ---- 第二步：大模块各自生成 subtask ----
+            for module_key, module_info in large_modules.items():
                 file_count = module_info["file_count"]
                 total_lines = module_info["total_lines"]
                 
-                # 自适应超时和文件读取上限
                 if file_count > 50:
                     timeout = int(self.config.analysis_timeout_large)
                     file_cap = self.config.analysis_file_read_cap_large
@@ -809,7 +830,7 @@ class OrchestratorV4ACP:
                     file_cap = self.config.analysis_file_read_cap_small
                 
                 subtasks.append({
-                    "id": f"step-{idx}",
+                    "id": f"step-{step_idx}",
                     "description": (
                         f"分析模块 [{module_key}]（{file_count} 个文件，{total_lines} 行代码）\n\n"
                         f"原始任务：{content[:200]}\n\n"
@@ -819,7 +840,7 @@ class OrchestratorV4ACP:
                         f"- 总共最多读 {file_cap} 个文件\n"
                         f"- 如果时间不够，优先输出已分析的内容，不要卡在读文件上"
                     ),
-                    "files_to_read": [],  # 大项目不预分配文件，让子代理自己探索
+                    "files_to_read": [],
                     "estimated_time_sec": timeout,
                     "mode": "slow",
                     "dependencies": [],
@@ -829,9 +850,105 @@ class OrchestratorV4ACP:
                     "module_total_lines": total_lines,
                     "file_read_cap": file_cap,
                 })
+                step_idx += 1
             
-            # 计算总时间（并行）
+            # ---- 第三步：小模块按负载贪心合并 ----
+            if small_modules:
+                # 按文件数降序排列，大的先放，贪心装箱
+                sorted_small = sorted(small_modules.items(), key=lambda x: x[1]["file_count"], reverse=True)
+                
+                current_batch = []  # [(module_key, module_info), ...]
+                current_files = 0
+                current_lines = 0
+                
+                def _flush_batch(batch, idx):
+                    """把当前 batch 生成一个合并 subtask"""
+                    batch_file_count = sum(m[1]["file_count"] for m in batch)
+                    batch_total_lines = sum(m[1]["total_lines"] for m in batch)
+                    batch_keys = [m[0] for m in batch]
+                    
+                    # 合并后的文件读取上限 = 各模块 cap 之和，但不超过合理值
+                    per_module_cap = max(3, self.config.analysis_file_read_cap_small // 2)
+                    merged_file_cap = min(
+                        per_module_cap * len(batch),
+                        self.config.analysis_file_read_cap_large
+                    )
+                    
+                    # 合并后超时取中模块级别
+                    if batch_file_count > 50:
+                        merged_timeout = int(self.config.analysis_timeout_large)
+                    elif batch_file_count > 20:
+                        merged_timeout = int(self.config.analysis_timeout_medium)
+                    else:
+                        merged_timeout = int(self.config.analysis_timeout_small)
+                    
+                    module_list_str = "\n".join(
+                        f"  - [{k}]（{m['file_count']} 文件，{m['total_lines']} 行）"
+                        for k, m in batch
+                    )
+                    
+                    if len(batch) == 1:
+                        label = batch_keys[0]
+                    else:
+                        label = "+".join(batch_keys[:3])
+                        if len(batch_keys) > 3:
+                            label += f"+{len(batch_keys)-3}more"
+                    
+                    return {
+                        "id": f"step-{idx}",
+                        "description": (
+                            f"分析以下 {len(batch)} 个小模块（共 {batch_file_count} 个文件，{batch_total_lines} 行代码）：\n"
+                            f"{module_list_str}\n\n"
+                            f"原始任务：{content[:200]}\n\n"
+                            f"⚠️ 文件读取约束：\n"
+                            f"- 每个模块优先读 index.ts / 主文件 / types.ts\n"
+                            f"- 每个模块读 1-3 个核心文件即可\n"
+                            f"- 总共最多读 {merged_file_cap} 个文件\n"
+                            f"- 如果时间不够，优先输出已分析的内容"
+                        ),
+                        "files_to_read": [],
+                        "estimated_time_sec": merged_timeout,
+                        "mode": "slow",
+                        "dependencies": [],
+                        "priority": "normal",
+                        "module_key": label,
+                        "module_file_count": batch_file_count,
+                        "module_total_lines": batch_total_lines,
+                        "file_read_cap": merged_file_cap,
+                        "merged_modules": batch_keys,
+                    }
+                
+                for module_key, module_info in sorted_small:
+                    fc = module_info["file_count"]
+                    tl = module_info["total_lines"]
+                    
+                    # 如果加入当前 batch 会超限，先 flush
+                    if current_batch and (current_files + fc > MERGED_BATCH_FILE_LIMIT or current_lines + tl > MERGED_BATCH_LINE_LIMIT):
+                        subtasks.append(_flush_batch(current_batch, step_idx))
+                        step_idx += 1
+                        current_batch = []
+                        current_files = 0
+                        current_lines = 0
+                    
+                    current_batch.append((module_key, module_info))
+                    current_files += fc
+                    current_lines += tl
+                
+                # flush 最后一批
+                if current_batch:
+                    subtasks.append(_flush_batch(current_batch, step_idx))
+                    step_idx += 1
+            
+            # ---- 第四步：统计和返回 ----
+            original_module_count = len(modules)
+            merged_count = len(subtasks)
+            small_count = len(small_modules)
+            
             estimated_total = max(t["estimated_time_sec"] for t in subtasks) if subtasks else 0
+            
+            merge_note = ""
+            if small_count > 0 and merged_count < original_module_count:
+                merge_note = f"，{small_count} 个小模块合并为 {merged_count - len(large_modules)} 个批次"
             
             return {
                 "complexity": complexity,
@@ -842,7 +959,7 @@ class OrchestratorV4ACP:
                 "strategy": "parallel",
                 "subtasks": subtasks,
                 "merge_strategy": "synthesize",
-                "notes": f"🔥 大项目分析模式：按 {len(modules)} 个模块拆分，自适应超时，含文件读取约束",
+                "notes": f"🔥 大项目分析模式：{original_module_count} 个模块 → {merged_count} 个子任务{merge_note}",
                 "is_large_project": True,
             }
         
